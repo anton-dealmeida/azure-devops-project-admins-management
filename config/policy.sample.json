@@ -1,0 +1,17 @@
+{
+  "minimumAdminsPerProject": 2,
+  "multiProjectThreshold": 1,
+  "dormantDays": 90,
+  "projectScope": [],
+  "skipMemberSubjectKinds": [
+    "group"
+  ],
+  "disallowedPatterns": [
+    "^svc-.*@email\\.com$"
+  ],
+  "disallowedExactEmails": [],
+  "protectedAdmins": [
+    "breakglass-admin@email.com"
+  ],
+  "forceRemoveAllAdmins": []
+}
