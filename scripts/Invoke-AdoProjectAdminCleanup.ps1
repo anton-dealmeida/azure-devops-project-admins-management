@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
@@ -164,4 +165,4 @@ Write-Host "CSV : $plannedCsvPath"
 Write-Host "Executed log: $executedJsonPath"
 Write-Host "Rollback script: $rollbackScriptPath"
 Write-Host "Cleanup done."
-return $planned
+return $executed

@@ -1,3 +1,4 @@
+#Requires -Version 7.0
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -75,9 +76,17 @@ function Invoke-AdoCliJson {
     }
 
     for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
-        $output = & az @Arguments 2>&1
+        $stdoutFile = [System.IO.Path]::GetTempFileName()
+        try {
+            & az @Arguments 2>$null | Set-Content -LiteralPath $stdoutFile -Encoding UTF8
+            $stdoutStr = Get-Content -LiteralPath $stdoutFile -Raw -Encoding UTF8
+        }
+        finally {
+            Remove-Item -LiteralPath $stdoutFile -ErrorAction SilentlyContinue
+        }
+
         if ($LASTEXITCODE -eq 0) {
-            if ([string]::IsNullOrWhiteSpace(($output -join "`n"))) {
+            if ([string]::IsNullOrWhiteSpace($stdoutStr)) {
                 if ($AllowEmptyOutput) {
                     return $null
                 }
@@ -85,15 +94,15 @@ function Invoke-AdoCliJson {
                 throw "Azure CLI command returned empty output: az $($Arguments -join ' ')"
             }
 
-            return ($output | Out-String | ConvertFrom-Json -Depth 100)
+            return ($stdoutStr | ConvertFrom-Json)
         }
 
         $flatArgs = ($Arguments -join ' ')
-        $errorText = ($output | Out-String)
-        $isTransient = Test-IsTransientAdoError -Message $errorText
+        $stderrCapture = (& az @Arguments 2>&1 | Out-String)
+        $isTransient = Test-IsTransientAdoError -Message $stderrCapture
         $isLastAttempt = ($attempt -eq $RetryCount)
         if ($isLastAttempt -or -not $isTransient) {
-            throw "Azure CLI command failed: az $flatArgs`n$errorText"
+            throw "Azure CLI command failed: az $flatArgs`n$stderrCapture"
         }
 
         Start-Sleep -Seconds ($RetryDelaySeconds * $attempt)
@@ -711,6 +720,7 @@ const metadata = $metadataJson;
 
 const adminKey = (r) => (r.AdminMailAddress || r.AdminPrincipalName || r.AdminDisplayName || '').toLowerCase();
 const adminLabel = (r) => r.AdminMailAddress || r.AdminPrincipalName || r.AdminDisplayName || '(unknown)';
+const escHtml = (s) => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
 
 document.getElementById('meta').textContent =
   `Org: ${metadata.OrganizationUrl} | Generated: ${metadata.GeneratedAtUtc} | Min admins/project: ${metadata.MinimumAdminsPerProject} | Multi-project threshold: ${metadata.MultiProjectThreshold} | Dormant days: ${metadata.DormantDays}`;
@@ -782,7 +792,7 @@ function renderTables() {
       a.flags.dormant ? mkFlag('warn', 'dormant') : '',
       a.flags.force ? mkFlag('danger', 'force-remove-all') : ''
     ].join(' ');
-    return `<tr><td><code>${a.label}</code></td><td>${a.count}</td><td>${flags}</td></tr>`;
+    return `<tr><td><code>${escHtml(a.label)}</code></td><td>${a.count}</td><td>${flags}</td></tr>`;
   }).join('');
 
   const projectFiltered = projectRows.filter(p => {
@@ -800,7 +810,7 @@ function renderTables() {
       p.count > metadata.MinimumAdminsPerProject ? mkFlag('warn', 'above-min') : mkFlag('ok', 'within-min'),
       p.hasFlagged ? mkFlag('danger', 'flagged-memberships') : ''
     ].join(' ');
-    return `<tr><td>${p.name}</td><td>${p.count}</td><td>${flags}</td></tr>`;
+    return `<tr><td>${escHtml(p.name)}</td><td>${p.count}</td><td>${flags}</td></tr>`;
   }).join('');
 
   const flaggedTbody = document.querySelector('#flaggedTable tbody');
@@ -818,8 +828,8 @@ function renderTables() {
         r.InForceRemoveAllList ? mkFlag('danger', 'force-remove-all') : '',
         r.IsProtected ? mkFlag('ok', 'protected') : ''
       ].join(' ');
-      const last = r.LastAccessedDate ? `${r.LastAccessedDate} (${r.DaysSinceLastAccess ?? 'n/a'} days)` : 'n/a';
-      return `<tr><td>${r.ProjectName}</td><td><code>${adminLabel(r)}</code></td><td>${reasons}</td><td>${last}</td></tr>`;
+      const last = r.LastAccessedDate ? `${escHtml(r.LastAccessedDate)} (${r.DaysSinceLastAccess ?? 'n/a'} days)` : 'n/a';
+      return `<tr><td>${escHtml(r.ProjectName)}</td><td><code>${escHtml(adminLabel(r))}</code></td><td>${reasons}</td><td>${last}</td></tr>`;
     }).join('');
 }
 

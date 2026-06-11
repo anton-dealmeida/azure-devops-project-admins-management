@@ -6,12 +6,12 @@ $ErrorActionPreference = 'Stop'
 Describe 'AdoProjectAdminTools' {
     It 'normalizes account keys to lowercase and trim' {
         $result = ConvertTo-NormalizedAccountKey -Value '  User@Email.COM  '
-        $result | Should Be 'user@email.com'
+        $result | Should -Be 'user@email.com'
     }
 
     It 'matches regex patterns for disallowed accounts' {
         $hit = Test-PatternMatch -Value 'svc-build@email.com' -Patterns @('^svc-.*@email\.com$')
-        $hit | Should Be $true
+        $hit | Should -Be $true
     }
 
     It 'keeps removals when bypass minimum admins check is enabled' {
@@ -25,7 +25,7 @@ Describe 'AdoProjectAdminTools' {
         )
 
         $plan = New-AdoCleanupPlan -Records $records -Policy $policy -IncludeDisallowed -BypassMinimumAdminsCheck
-        @($plan.Planned).Count | Should Be 1
+        @($plan.Planned).Count | Should -Be 1
     }
 
     It 'blocks protected admins from planned removals' {
@@ -39,6 +39,6 @@ Describe 'AdoProjectAdminTools' {
         )
 
         $plan = New-AdoCleanupPlan -Records $records -Policy $policy -IncludeDisallowed
-        @($plan.Planned).Count | Should Be 0
+        @($plan.Planned).Count | Should -Be 0
     }
 }

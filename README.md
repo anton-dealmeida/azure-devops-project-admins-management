@@ -31,13 +31,19 @@ Script-first toolkit to report and clean up Azure DevOps **Project Administrator
 
 1. Copy policy template and edit values:
 
-   Copy-Item .\\config\\policy.sample.json .\\config\\policy.json
+   ```powershell
+   Copy-Item .\config\policy.sample.json .\config\policy.json
+   ```
+
 2. Generate baseline report first (no changes):
 
-  .\\scripts\\Get-AdoProjectAdminReport.ps1 \`
-     -OrganizationUrl "https://dev.azure.com/<org>" \`
-     -PolicyPath ".\\config\\policy.json" \`
-     -OutputDirectory ".\\reports"
+   ```powershell
+   .\scripts\Get-AdoProjectAdminReport.ps1 `
+     -OrganizationUrl "https://dev.azure.com/<org>" `
+     -PolicyPath ".\config\policy.json" `
+     -OutputDirectory ".\reports"
+   ```
+
 3. Review:
 
     - `reports\project-admin-report.json`
@@ -86,8 +92,9 @@ Script-first toolkit to report and clean up Azure DevOps **Project Administrator
 
 ## Testing
 
-If Pester is available:
+Tests require **Pester v5+**. Install if needed:
 
 ```powershell
+Install-Module Pester -MinimumVersion 5.0.0 -Force -Scope CurrentUser
 Invoke-Pester .\tests\AdoProjectAdminTools.Tests.ps1
 ```
