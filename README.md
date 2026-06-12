@@ -7,6 +7,7 @@ Script-first toolkit to report and clean up Azure DevOps **Project Administrator
 - Report which admins are in more than configured number of projects.
 - Report which projects have more admins than configured minimum.
 - Flag disallowed admins (exact list and/or regex patterns).
+- Track watched admins (exact email list) and whether project membership matches association policy patterns.
 - Flag dormant admins (based on last access age).
 - Produce JSON + CSV + static HTML dashboard with:
     - admin -> project count/list
@@ -34,6 +35,29 @@ Script-first toolkit to report and clean up Azure DevOps **Project Administrator
    ```powershell
    Copy-Item .\config\policy.sample.json .\config\policy.json
    ```
+
+   Watched-admin association policy shape:
+
+   ```json
+   {
+    "watchedExactEmails": [
+      "AdminUser1@example.com"
+    ],
+    "allowedProjectPatternsByAdmin": {
+      "AdminUser1@example.com": [
+        "^Proj",
+        "^Admins",
+        "^Infra.*Corp"
+      ]
+    }
+   }
+   ```
+
+   Notes:
+
+   - `watchedExactEmails` uses exact email matching (case-insensitive after normalization).
+   - `allowedProjectPatternsByAdmin` is object map: admin email -> regex patterns for allowed project names.
+   - Report records include: `IsWatchedAdmin`, `HasAssociationPolicy`, `IsAssociatedProjectForWatchedAdmin`, `IsUnexpectedWatchedAdmin`, `MatchedAssociationPattern`.
 
 2. Generate baseline report first (no changes):
 

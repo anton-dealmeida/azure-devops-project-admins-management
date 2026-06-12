@@ -10,6 +10,16 @@
     "^svc-.*@email\\.com$"
   ],
   "disallowedExactEmails": [],
+  "watchedExactEmails": [
+    "AdminUser1@email.com"
+  ],
+  "allowedProjectPatternsByAdmin": {
+    "AdminUser1@email.com": [
+      "^Proj",
+      "^Admins",
+      "^Infra.*Corp"
+    ]
+  },
   "protectedAdmins": [
     "breakglass-admin@email.com"
   ],
