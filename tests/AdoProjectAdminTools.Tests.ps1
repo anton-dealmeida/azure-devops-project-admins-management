@@ -60,6 +60,24 @@ Describe 'AdoProjectAdminTools' {
         $result.MatchedAssociationPattern | Should -Be $null
     }
 
+    It 'does not mark watched admin as unexpected when no association policy exists' {
+        $watchedSet = @{ 'adminuser1@example.com' = $true }
+        $assocLookup = @{}
+
+        $result = Resolve-WatchedAdminAssociation `
+            -MailAddress 'AdminUser1@example.com' `
+            -PrincipalName 'AdminUser1@example.com' `
+            -WatchedExactSet $watchedSet `
+            -AllowedProjectPatternsLookup $assocLookup `
+            -ProjectName 'Proj-Platform'
+
+        $result.IsWatchedAdmin | Should -Be $true
+        $result.HasAssociationPolicy | Should -Be $false
+        $result.IsAssociatedProjectForWatchedAdmin | Should -Be $false
+        $result.IsUnexpectedWatchedAdmin | Should -Be $false
+        $result.MatchedAssociationPattern | Should -Be $null
+    }
+
     It 'keeps removals when bypass minimum admins check is enabled' {
         $policy = [pscustomobject]@{ minimumAdminsPerProject = 2 }
         $records = @(

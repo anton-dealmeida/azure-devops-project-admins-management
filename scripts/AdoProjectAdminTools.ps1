@@ -468,7 +468,7 @@ function Resolve-WatchedAdminAssociation {
         }
     }
 
-    $isUnexpectedWatchedAdmin = $isWatchedAdmin -and -not $isAssociatedProjectForWatchedAdmin
+    $isUnexpectedWatchedAdmin = $isWatchedAdmin -and $hasAssociationPolicy -and -not $isAssociatedProjectForWatchedAdmin
     return [pscustomobject]@{
         IsWatchedAdmin                     = $isWatchedAdmin
         HasAssociationPolicy               = $hasAssociationPolicy

@@ -10,7 +10,9 @@
     "^svc-.*@email\\.com$"
   ],
   "disallowedExactEmails": [],
-  "watchedExactEmails": [],
+  "watchedExactEmails": [
+    "AdminUser1@email.com"
+  ],
   "allowedProjectPatternsByAdmin": {
     "AdminUser1@email.com": [
       "^Proj",
