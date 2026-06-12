@@ -14,6 +14,52 @@ Describe 'AdoProjectAdminTools' {
         $hit | Should -Be $true
     }
 
+    It 'builds admin association pattern lookup from policy map' {
+        $lookup = ConvertTo-AdminPatternLookup -RawMap ([pscustomobject]@{
+            'AdminUser1@example.com' = @('^Proj', '^Infra.*Corp')
+        })
+
+        $lookup.ContainsKey('adminuser1@example.com') | Should -Be $true
+        @($lookup['adminuser1@example.com']).Count | Should -Be 2
+        $lookup['adminuser1@example.com'][0] | Should -Be '^Proj'
+    }
+
+    It 'marks watched admin as associated when project matches policy pattern' {
+        $watchedSet = @{ 'adminuser1@example.com' = $true }
+        $assocLookup = @{ 'adminuser1@example.com' = @('^Proj') }
+
+        $result = Resolve-WatchedAdminAssociation `
+            -MailAddress 'AdminUser1@example.com' `
+            -PrincipalName 'AdminUser1@example.com' `
+            -WatchedExactSet $watchedSet `
+            -AllowedProjectPatternsLookup $assocLookup `
+            -ProjectName 'Proj-Platform'
+
+        $result.IsWatchedAdmin | Should -Be $true
+        $result.HasAssociationPolicy | Should -Be $true
+        $result.IsAssociatedProjectForWatchedAdmin | Should -Be $true
+        $result.IsUnexpectedWatchedAdmin | Should -Be $false
+        $result.MatchedAssociationPattern | Should -Be '^Proj'
+    }
+
+    It 'marks watched admin as unexpected when project does not match policy pattern' {
+        $watchedSet = @{ 'adminuser1@example.com' = $true }
+        $assocLookup = @{ 'adminuser1@example.com' = @('^Admins') }
+
+        $result = Resolve-WatchedAdminAssociation `
+            -MailAddress 'AdminUser1@example.com' `
+            -PrincipalName 'AdminUser1@example.com' `
+            -WatchedExactSet $watchedSet `
+            -AllowedProjectPatternsLookup $assocLookup `
+            -ProjectName 'Proj-Platform'
+
+        $result.IsWatchedAdmin | Should -Be $true
+        $result.HasAssociationPolicy | Should -Be $true
+        $result.IsAssociatedProjectForWatchedAdmin | Should -Be $false
+        $result.IsUnexpectedWatchedAdmin | Should -Be $true
+        $result.MatchedAssociationPattern | Should -Be $null
+    }
+
     It 'keeps removals when bypass minimum admins check is enabled' {
         $policy = [pscustomobject]@{ minimumAdminsPerProject = 2 }
         $records = @(

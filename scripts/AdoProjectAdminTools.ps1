@@ -155,6 +155,14 @@ function Get-AdoPolicy {
         $policy | Add-Member -MemberType NoteProperty -Name forceRemoveAllAdmins -Value @() -Force
     }
 
+    if (-not $policy.watchedExactEmails) {
+        $policy | Add-Member -MemberType NoteProperty -Name watchedExactEmails -Value @() -Force
+    }
+
+    if (-not $policy.allowedProjectPatternsByAdmin) {
+        $policy | Add-Member -MemberType NoteProperty -Name allowedProjectPatternsByAdmin -Value ([pscustomobject]@{}) -Force
+    }
+
     return $policy
 }
 
@@ -353,17 +361,121 @@ function Test-PatternMatch {
         return $false
     }
 
+    return ($null -ne (Get-FirstMatchedPattern -Value $Value -Patterns $Patterns))
+}
+
+function Get-FirstMatchedPattern {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$Value,
+        [string[]]$Patterns
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
     foreach ($pattern in @($Patterns)) {
         if ([string]::IsNullOrWhiteSpace($pattern)) {
             continue
         }
 
         if ($Value -match $pattern) {
-            return $true
+            return [string]$pattern
         }
     }
 
-    return $false
+    return $null
+}
+
+function ConvertTo-AdminPatternLookup {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        $RawMap
+    )
+
+    $lookup = @{}
+    if ($null -eq $RawMap) {
+        return $lookup
+    }
+
+    foreach ($property in @($RawMap.PSObject.Properties)) {
+        $adminKey = ConvertTo-NormalizedAccountKey -Value $property.Name
+        if (-not $adminKey) {
+            continue
+        }
+
+        $patterns = @()
+        foreach ($pattern in @($property.Value)) {
+            if ([string]::IsNullOrWhiteSpace([string]$pattern)) {
+                continue
+            }
+
+            $patterns += [string]$pattern
+        }
+
+        $lookup[$adminKey] = $patterns
+    }
+
+    return $lookup
+}
+
+function Resolve-WatchedAdminAssociation {
+    param(
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$MailAddress,
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$PrincipalName,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$WatchedExactSet,
+        [Parameter(Mandatory = $true)]
+        [hashtable]$AllowedProjectPatternsLookup,
+        [Parameter(Mandatory = $false)]
+        [AllowNull()]
+        [string]$ProjectName
+    )
+
+    $emailCandidates = @()
+    foreach ($candidate in @($MailAddress, $PrincipalName)) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and $candidate -match '@') {
+            $emailCandidates += (ConvertTo-NormalizedAccountKey -Value $candidate)
+        }
+    }
+    $emailCandidates = @($emailCandidates | Where-Object { $_ } | Select-Object -Unique)
+
+    $watchedKey = $null
+    foreach ($candidate in $emailCandidates) {
+        if ($WatchedExactSet.ContainsKey($candidate)) {
+            $watchedKey = $candidate
+            break
+        }
+    }
+
+    $isWatchedAdmin = $null -ne $watchedKey
+    $hasAssociationPolicy = $false
+    $matchedAssociationPattern = $null
+    $isAssociatedProjectForWatchedAdmin = $false
+
+    if ($isWatchedAdmin) {
+        $hasAssociationPolicy = $AllowedProjectPatternsLookup.ContainsKey($watchedKey)
+        if ($hasAssociationPolicy) {
+            $matchedAssociationPattern = Get-FirstMatchedPattern -Value $ProjectName -Patterns @($AllowedProjectPatternsLookup[$watchedKey])
+            $isAssociatedProjectForWatchedAdmin = ($null -ne $matchedAssociationPattern)
+        }
+    }
+
+    $isUnexpectedWatchedAdmin = $isWatchedAdmin -and -not $isAssociatedProjectForWatchedAdmin
+    return [pscustomobject]@{
+        IsWatchedAdmin                     = $isWatchedAdmin
+        HasAssociationPolicy               = $hasAssociationPolicy
+        IsAssociatedProjectForWatchedAdmin = $isAssociatedProjectForWatchedAdmin
+        IsUnexpectedWatchedAdmin           = $isUnexpectedWatchedAdmin
+        MatchedAssociationPattern          = $matchedAssociationPattern
+    }
 }
 
 function Get-AdoProjectAdminInventory {
@@ -395,6 +507,14 @@ function Get-AdoProjectAdminInventory {
         $key = ConvertTo-NormalizedAccountKey -Value $entry
         if ($key) { $forceRemoveAllSet[$key] = $true }
     }
+
+    $watchedExactSet = @{}
+    foreach ($entry in @($Policy.watchedExactEmails)) {
+        $key = ConvertTo-NormalizedAccountKey -Value $entry
+        if ($key) { $watchedExactSet[$key] = $true }
+    }
+
+    $allowedProjectPatternsLookup = ConvertTo-AdminPatternLookup -RawMap $Policy.allowedProjectPatternsByAdmin
 
     $skipKinds = @($Policy.skipMemberSubjectKinds)
     $skipKindSet = @{}
@@ -482,6 +602,13 @@ function Get-AdoProjectAdminInventory {
                 }
             }
 
+            $watchedAssociation = Resolve-WatchedAdminAssociation `
+                -MailAddress $mailAddress `
+                -PrincipalName $principalName `
+                -WatchedExactSet $watchedExactSet `
+                -AllowedProjectPatternsLookup $allowedProjectPatternsLookup `
+                -ProjectName $project.name
+
             $records += [pscustomobject]@{
                 ProjectId             = $project.id
                 ProjectName           = $project.name
@@ -497,6 +624,11 @@ function Get-AdoProjectAdminInventory {
                 IsDisallowed          = $isDisallowed
                 IsProtected           = $isProtected
                 InForceRemoveAllList  = $inForceRemoveAllList
+                IsWatchedAdmin        = $watchedAssociation.IsWatchedAdmin
+                HasAssociationPolicy               = $watchedAssociation.HasAssociationPolicy
+                IsAssociatedProjectForWatchedAdmin = $watchedAssociation.IsAssociatedProjectForWatchedAdmin
+                IsUnexpectedWatchedAdmin           = $watchedAssociation.IsUnexpectedWatchedAdmin
+                MatchedAssociationPattern          = $watchedAssociation.MatchedAssociationPattern
             }
         }
     }
@@ -542,6 +674,8 @@ function Get-AdoProjectAdminInventory {
             DisallowedMembershipsCount             = @($records | Where-Object { $_.IsDisallowed }).Count
             DormantMembershipsCount                = @($records | Where-Object { $_.IsDormant }).Count
             ForceRemoveAllMembershipsCount         = @($records | Where-Object { $_.InForceRemoveAllList }).Count
+            WatchedAdminMembershipsCount           = @($records | Where-Object { $_.IsWatchedAdmin }).Count
+            UnexpectedWatchedAdminMembershipsCount = @($records | Where-Object { $_.IsUnexpectedWatchedAdmin }).Count
         }
     }
 }
@@ -734,6 +868,8 @@ const cardData = [
   ['Disallowed memberships', summary.DisallowedMembershipsCount],
   ['Dormant memberships', summary.DormantMembershipsCount],
   ['Force-remove-all matches', summary.ForceRemoveAllMembershipsCount],
+  ['Watched admin memberships', summary.WatchedAdminMembershipsCount || 0],
+  ['Unexpected watched admin memberships', summary.UnexpectedWatchedAdminMembershipsCount || 0],
 ];
 document.getElementById('summary').innerHTML = cardData
   .map(([k,v]) => `<div class="card"><div class="muted">${k}</div><div class="big">${v}</div></div>`)
@@ -742,12 +878,14 @@ document.getElementById('summary').innerHTML = cardData
 const admins = new Map();
 for (const rec of records) {
   const key = adminKey(rec);
-  if (!admins.has(key)) admins.set(key, { label: adminLabel(rec), projects: new Set(), flags: { disallowed: false, dormant: false, force: false } });
+  if (!admins.has(key)) admins.set(key, { label: adminLabel(rec), projects: new Set(), flags: { disallowed: false, dormant: false, force: false, watched: false, unexpectedWatched: false } });
   const item = admins.get(key);
   item.projects.add(rec.ProjectName);
   item.flags.disallowed ||= !!rec.IsDisallowed;
   item.flags.dormant ||= !!rec.IsDormant;
   item.flags.force ||= !!rec.InForceRemoveAllList;
+  item.flags.watched ||= !!rec.IsWatchedAdmin;
+  item.flags.unexpectedWatched ||= !!rec.IsUnexpectedWatchedAdmin;
 }
 
 const adminRows = [...admins.values()]
@@ -760,14 +898,14 @@ for (const rec of records) {
   if (!projects.has(rec.ProjectName)) projects.set(rec.ProjectName, { name: rec.ProjectName, admins: new Set(), hasFlagged: false });
   const item = projects.get(rec.ProjectName);
   item.admins.add(adminKey(rec));
-  item.hasFlagged ||= (!!rec.IsDisallowed || !!rec.IsDormant || !!rec.InForceRemoveAllList);
+  item.hasFlagged ||= (!!rec.IsDisallowed || !!rec.IsDormant || !!rec.InForceRemoveAllList || !!rec.IsUnexpectedWatchedAdmin);
 }
 const projectRows = [...projects.values()]
   .map(v => ({ ...v, count: v.admins.size }))
   .sort((a,b) => b.count - a.count || a.name.localeCompare(b.name));
 
 const flaggedRows = records
-  .filter(r => r.IsDisallowed || r.IsDormant || r.InForceRemoveAllList)
+  .filter(r => r.IsDisallowed || r.IsDormant || r.InForceRemoveAllList || r.IsUnexpectedWatchedAdmin)
   .sort((a,b) => (a.ProjectName || '').localeCompare(b.ProjectName || '') || adminLabel(a).localeCompare(adminLabel(b)));
 
 function renderTables() {
@@ -776,7 +914,7 @@ function renderTables() {
   const onlyAboveThreshold = document.getElementById('onlyAboveThreshold').checked;
 
   const adminFiltered = adminRows.filter(a => {
-    const flagHit = a.flags.disallowed || a.flags.dormant || a.flags.force || a.count > metadata.MultiProjectThreshold;
+    const flagHit = a.flags.disallowed || a.flags.dormant || a.flags.force || a.flags.unexpectedWatched || a.count > metadata.MultiProjectThreshold;
     const thresholdHit = a.count > metadata.MultiProjectThreshold;
     const searchHit = !q || a.label.toLowerCase().includes(q);
     if (onlyFlagged && !flagHit) return false;
@@ -790,7 +928,9 @@ function renderTables() {
       a.count > metadata.MultiProjectThreshold ? mkFlag('warn', 'multi-project') : '',
       a.flags.disallowed ? mkFlag('danger', 'disallowed') : '',
       a.flags.dormant ? mkFlag('warn', 'dormant') : '',
-      a.flags.force ? mkFlag('danger', 'force-remove-all') : ''
+      a.flags.force ? mkFlag('danger', 'force-remove-all') : '',
+      a.flags.watched ? mkFlag('ok', 'watched') : '',
+      a.flags.unexpectedWatched ? mkFlag('danger', 'unexpected-watched') : ''
     ].join(' ');
     return `<tr><td><code>${escHtml(a.label)}</code></td><td>${a.count}</td><td>${flags}</td></tr>`;
   }).join('');
@@ -826,6 +966,11 @@ function renderTables() {
         r.IsDisallowed ? mkFlag('danger', 'disallowed') : '',
         r.IsDormant ? mkFlag('warn', 'dormant') : '',
         r.InForceRemoveAllList ? mkFlag('danger', 'force-remove-all') : '',
+        r.IsWatchedAdmin ? mkFlag('ok', 'watched') : '',
+        r.HasAssociationPolicy ? mkFlag('ok', 'has-association-policy') : '',
+        r.IsAssociatedProjectForWatchedAdmin ? mkFlag('ok', 'associated-project') : '',
+        r.IsUnexpectedWatchedAdmin ? mkFlag('danger', 'unexpected-watched') : '',
+        r.MatchedAssociationPattern ? mkFlag('ok', 'match:' + escHtml(r.MatchedAssociationPattern)) : '',
         r.IsProtected ? mkFlag('ok', 'protected') : ''
       ].join(' ');
       const last = r.LastAccessedDate ? `${escHtml(r.LastAccessedDate)} (${r.DaysSinceLastAccess ?? 'n/a'} days)` : 'n/a';
